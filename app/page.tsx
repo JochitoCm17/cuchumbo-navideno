@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
-import { Gift, Sparkles, Users, CheckCircle2, Clock, ShieldCheck, Heart } from 'lucide-react';
+import { Gift, Sparkles, Users, CheckCircle2, Clock, ShieldCheck, Heart, Search, RefreshCw } from 'lucide-react';
 
 interface Participante {
   id: string;
@@ -45,6 +45,17 @@ export default function CuchumboPage() {
   const [rotacion, setRotacion] = useState(0);
   const [resultado, setResultado] = useState<{ nombre: string; pista: string | null } | null>(null);
 
+  // Estados para recordar amigo secreto y actualizar talla
+  const [consultaId, setConsultaId] = useState('');
+  const [nuevaTalla, setNuevaTalla] = useState('');
+  const [cargandoConsulta, setCargandoConsulta] = useState(false);
+  const [errorConsulta, setErrorConsulta] = useState('');
+  const [datosConsulta, setDatosConsulta] = useState<{
+    amigo_secreto: string;
+    mi_pista: string | null;
+    pista_receptor: string;
+  } | null>(null);
+
   useEffect(() => {
     obtenerDatos();
     const intervalo = setInterval(obtenerDatos, 3500);
@@ -64,7 +75,7 @@ export default function CuchumboPage() {
     const user = participantes.find((p) => p.id === seleccionadoId);
     if (!user) return;
     if (user.ya_giro) {
-      setErrorMsg('🔒 Este turno ya fue usado. No se puede volver a entrar.');
+      setErrorMsg('🔒 Este turno ya fue usado. Usá la sección de abajo para recordar quién te salió o actualizar tu talla.');
       return;
     }
     setErrorMsg('');
@@ -121,6 +132,38 @@ export default function CuchumboPage() {
     }, 5000);
   }
 
+  async function manejarConsulta(e: React.FormEvent) {
+    e.preventDefault();
+    if (!consultaId) return;
+    setCargandoConsulta(true);
+    setErrorConsulta('');
+
+    try {
+      const res = await fetch('/api/cuchumbo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'consultar',
+          id: consultaId,
+          nueva_pista: nuevaTalla,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setErrorConsulta(data.error);
+        setDatosConsulta(null);
+      } else {
+        setDatosConsulta(data);
+        setNuevaTalla('');
+        obtenerDatos();
+      }
+    } catch {
+      setErrorConsulta('Error de conexión. Intentá de nuevo.');
+    } finally {
+      setCargandoConsulta(false);
+    }
+  }
+
   const gradienteRuleta =
     participantes.length > 0
       ? `conic-gradient(${participantes
@@ -135,6 +178,7 @@ export default function CuchumboPage() {
 
   const totalYaGiraron = participantes.filter((p) => p.ya_giro).length;
   const usuarioActual = participantes.find((p) => p.id === seleccionadoId);
+  const usuarioConsulta = participantes.find((p) => p.id === consultaId);
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-red-950 via-slate-950 to-emerald-950 text-white p-4 md:p-8 relative overflow-hidden">
@@ -177,165 +221,259 @@ export default function CuchumboPage() {
           🎄 Ruleta Navideña 🎁
         </h1>
         <p className="text-slate-300 text-sm md:text-base">
-          Elegí tu nombre, anotá una pista de qué te gustaría recibir y girá. <strong className="text-amber-300">¡Solo tenés 1 intento!</strong>
+          Elegí tu nombre, anotá tu talla de chancleta y girá. <strong className="text-amber-300">¡Solo tenés 1 intento!</strong>
         </p>
       </div>
 
       <div className="max-w-5xl mx-auto grid md:grid-cols-5 gap-6 items-start relative z-10">
-        <div className="md:col-span-3 bg-slate-900/85 backdrop-blur-md border border-slate-800 rounded-3xl p-6 shadow-2xl">
-          {!pasoListoParaGirar ? (
-            <form onSubmit={confirmarDatos} className="space-y-5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-amber-400 font-semibold text-lg">
-                  <Heart size={20} /> Anotá tus datos
+        <div className="md:col-span-3 space-y-6">
+          <div className="bg-slate-900/85 backdrop-blur-md border border-slate-800 rounded-3xl p-6 shadow-2xl">
+            {!pasoListoParaGirar ? (
+              <form onSubmit={confirmarDatos} className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-amber-400 font-semibold text-lg">
+                    <Heart size={20} /> Anotá tus datos
+                  </div>
+                  <span className="text-xs text-slate-400 flex items-center gap-1">
+                    <ShieldCheck size={14} className="text-emerald-400" /> 1 giro único
+                  </span>
                 </div>
-                <span className="text-xs text-slate-400 flex items-center gap-1">
-                  <ShieldCheck size={14} className="text-emerald-400" /> 1 giro único
-                </span>
-              </div>
 
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1.5">
+                    1. ¿Quién sos?
+                  </label>
+                  <select
+                    value={seleccionadoId}
+                    onChange={(e) => {
+                      setSeleccionadoId(e.target.value);
+                      setErrorMsg('');
+                    }}
+                    required
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-400"
+                  >
+                    <option value="">Seleccioná tu nombre de la lista...</option>
+                    {participantes.map((p) => (
+                      <option key={p.id} value={p.id} disabled={p.ya_giro}>
+                        {p.nombre} {p.ya_giro ? '🔒 (Ya participó)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1.5">
+                    2. Tu talla exacta de chancleta (Niño/a, Mujer u Hombre) y color
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: 9 de hombre (o 42), color negro"
+                    value={pistaRegalo}
+                    onChange={(e) => setPistaRegalo(e.target.value)}
+                    required
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+
+                {errorMsg && (
+                  <p className="text-red-300 text-sm bg-red-950/80 border border-red-700/60 p-3.5 rounded-xl">
+                    {errorMsg}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 py-3.5 rounded-xl font-bold text-lg shadow-lg shadow-red-950 transition"
+                >
+                  Continuar a la Ruleta 🎅
+                </button>
+              </form>
+            ) : (
+              <div className="flex flex-col items-center text-center space-y-6">
+                <div className="w-full flex justify-between items-center border-b border-slate-800 pb-3">
+                  <span className="text-sm text-slate-400">
+                    Turno de: <strong className="text-white">{usuarioActual?.nombre}</strong>
+                  </span>
+                  {resultado && (
+                    <button
+                      onClick={() => {
+                        setPasoListoParaGirar(false);
+                        setSeleccionadoId('');
+                        setPistaRegalo('');
+                        setResultado(null);
+                        setRotacion(0);
+                      }}
+                      className="text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 px-3 py-1 rounded-lg transition"
+                    >
+                      Finalizar y bloquear turno 🔒
+                    </button>
+                  )}
+                </div>
+
+                <div className="relative w-72 h-72 md:w-80 md:h-80 flex items-center justify-center">
+                  <div className="absolute -top-3 z-20 w-0 h-0 border-l-[14px] border-l-transparent border-r-[14px] border-r-transparent border-t-[26px] border-t-amber-300 drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]" />
+
+                  <div
+                    style={{
+                      background: gradienteRuleta,
+                      transform: `rotate(${rotacion}deg)`,
+                      transition: girando
+                        ? 'transform 5s cubic-bezier(0.12, 0.88, 0.22, 1)'
+                        : 'none',
+                    }}
+                    className="w-full h-full rounded-full border-[5px] border-amber-400 shadow-[0_0_50px_rgba(251,191,36,0.35)] relative overflow-hidden"
+                  >
+                    {participantes.map((p, idx) => {
+                      const angulo = (360 / participantes.length) * idx + 360 / participantes.length / 2;
+                      return (
+                        <div
+                          key={p.id}
+                          style={{ transform: `rotate(${angulo}deg)` }}
+                          className="absolute inset-0 flex justify-center pt-3"
+                        >
+                          <span
+                            style={{ writingMode: 'vertical-rl' }}
+                            className="text-[10px] font-bold uppercase tracking-tight text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] max-h-24 overflow-hidden"
+                          >
+                            {p.nombre.slice(0, 11)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="absolute w-16 h-16 bg-slate-950 border-4 border-amber-400 rounded-full flex items-center justify-center z-10 shadow-xl">
+                    <Gift className="text-amber-400 animate-bounce" size={24} />
+                  </div>
+                </div>
+
+                {errorMsg && (
+                  <p className="text-red-300 text-sm bg-red-950/80 border border-red-700/60 p-3 rounded-xl w-full">
+                    {errorMsg}
+                  </p>
+                )}
+
+                {!resultado ? (
+                  <button
+                    onClick={girarRuleta}
+                    disabled={girando}
+                    className="w-full bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-500 text-slate-950 font-extrabold py-4 rounded-2xl text-lg shadow-lg hover:brightness-110 disabled:opacity-60 transition cursor-pointer"
+                  >
+                    {girando ? '🎄 Mezclando la suerte navideña...' : '¡GIRAR RULETA! (1 solo intento) 🎲'}
+                  </button>
+                ) : (
+                  <div className="w-full bg-gradient-to-br from-emerald-900/95 to-slate-900 border-2 border-amber-400 rounded-2xl p-6 space-y-3 shadow-2xl">
+                    <p className="text-xs uppercase tracking-widest text-amber-300 font-bold">
+                      ✨ ¡Te tocó regalarle a! ✨
+                    </p>
+                    <p className="text-3xl md:text-4xl font-black text-white">
+                      🎁 {resultado.nombre} 🎁
+                    </p>
+                    {resultado.pista && (
+                      <div className="bg-slate-950/70 border border-emerald-700/50 rounded-xl p-3 text-sm text-emerald-200">
+                        💡 <strong>Su talla / pista:</strong> &ldquo;{resultado.pista}&rdquo;
+                      </div>
+                    )}
+                    <p className="text-xs text-amber-200/90 bg-slate-950/60 p-2.5 rounded-xl">
+                      📸 <strong>¡Tomale captura ahorita!</strong> Tu turno ya quedó bloqueado. Podés revisar su talla actualizada abajo cuando quieras.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* NUEVA SECCIÓN: RECORDAR AMIGO SECRETO Y ACTUALIZAR TALLA */}
+          <div className="bg-slate-900/85 backdrop-blur-md border border-amber-500/40 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-amber-300 font-bold text-lg">
+                <Search size={20} /> ¿Ya giraste? Recordá tu amigo y actualizá tu talla
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Elegí tu nombre para volver a ver quién te tocó y su talla actualizada. Si pusiste tu talla incompleta, escribila abajo para actualizarla.
+            </p>
+
+            <form onSubmit={manejarConsulta} className="space-y-4">
               <div>
-                <label className="block text-sm text-slate-400 mb-1.5">
-                  1. ¿Quién sos?
+                <label className="block text-xs text-slate-400 mb-1">
+                  Tu nombre (solo quienes ya giraron)
                 </label>
                 <select
-                  value={seleccionadoId}
+                  value={consultaId}
                   onChange={(e) => {
-                    setSeleccionadoId(e.target.value);
-                    setErrorMsg('');
+                    setConsultaId(e.target.value);
+                    setDatosConsulta(null);
+                    setErrorConsulta('');
                   }}
                   required
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-400"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400"
                 >
-                  <option value="">Seleccioná tu nombre de la lista...</option>
-                  {participantes.map((p) => (
-                    <option key={p.id} value={p.id} disabled={p.ya_giro}>
-                      {p.nombre} {p.ya_giro ? '🔒 (Ya participó)' : ''}
-                    </option>
-                  ))}
+                  <option value="">Seleccioná tu nombre...</option>
+                  {participantes
+                    .filter((p) => p.ya_giro)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nombre}
+                      </option>
+                    ))}
                 </select>
+                {usuarioConsulta?.pista_regalo && (
+                  <p className="text-xs text-slate-400 mt-1.5">
+                    Tu talla actual guardada: <span className="text-amber-200">&ldquo;{usuarioConsulta.pista_regalo}&rdquo;</span>
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="block text-sm text-slate-400 mb-1.5">
-                  2. Pista para tu amigo secreto (talla, color favorito o qué te gustaría)
+                <label className="block text-xs text-slate-400 mb-1">
+                  Actualizar mi talla de chancleta (opcional - dejalo vacío si ya está bien)
                 </label>
                 <input
                   type="text"
-                  placeholder="Ej: Talla M, me gustan los chocolates, perfumes o gorras..."
-                  value={pistaRegalo}
-                  onChange={(e) => setPistaRegalo(e.target.value)}
-                  required
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-400"
+                  placeholder="Ej: Talla 8 de hombre (41), color negro"
+                  value={nuevaTalla}
+                  onChange={(e) => setNuevaTalla(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400"
                 />
               </div>
 
-              {errorMsg && (
-                <p className="text-red-300 text-sm bg-red-950/80 border border-red-700/60 p-3.5 rounded-xl">
-                  {errorMsg}
+              {errorConsulta && (
+                <p className="text-red-300 text-xs bg-red-950/80 border border-red-700/60 p-3 rounded-xl">
+                  {errorConsulta}
                 </p>
               )}
 
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 py-3.5 rounded-xl font-bold text-lg shadow-lg shadow-red-950 transition"
+                disabled={cargandoConsulta}
+                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 py-3 rounded-xl font-bold text-sm shadow-lg transition flex items-center justify-center gap-2 cursor-pointer"
               >
-                Continuar a la Ruleta 🎅
+                <RefreshCw size={16} className={cargandoConsulta ? 'animate-spin' : ''} />
+                {cargandoConsulta ? 'Consultando...' : 'Ver mi Amigo Secreto / Guardar Talla 🩴'}
               </button>
             </form>
-          ) : (
-            <div className="flex flex-col items-center text-center space-y-6">
-              <div className="w-full flex justify-between items-center border-b border-slate-800 pb-3">
-                <span className="text-sm text-slate-400">
-                  Turno de: <strong className="text-white">{usuarioActual?.nombre}</strong>
-                </span>
-                {resultado && (
-                  <button
-                    onClick={() => {
-                      setPasoListoParaGirar(false);
-                      setSeleccionadoId('');
-                      setPistaRegalo('');
-                      setResultado(null);
-                      setRotacion(0);
-                    }}
-                    className="text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 px-3 py-1 rounded-lg transition"
-                  >
-                    Finalizar y bloquear turno 🔒
-                  </button>
+
+            {datosConsulta && (
+              <div className="bg-slate-950/90 border border-emerald-500/50 rounded-2xl p-4 space-y-2.5">
+                <p className="text-xs text-slate-400">
+                  Te tocó regalarle a:
+                </p>
+                <p className="text-2xl font-extrabold text-amber-300">
+                  🎁 {datosConsulta.amigo_secreto}
+                </p>
+                <div className="bg-emerald-950/60 border border-emerald-800/60 rounded-xl p-3 text-sm text-emerald-200">
+                  🩴 <strong>Su talla / pista actual:</strong> &ldquo;{datosConsulta.pista_receptor}&rdquo;
+                </div>
+                {datosConsulta.mi_pista && (
+                  <p className="text-[11px] text-slate-400">
+                    ✅ Tu talla quedó guardada como: <em>&ldquo;{datosConsulta.mi_pista}&rdquo;</em>
+                  </p>
                 )}
               </div>
-
-              <div className="relative w-72 h-72 md:w-80 md:h-80 flex items-center justify-center">
-                <div className="absolute -top-3 z-20 w-0 h-0 border-l-[14px] border-l-transparent border-r-[14px] border-r-transparent border-t-[26px] border-t-amber-300 drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]" />
-
-                <div
-                  style={{
-                    background: gradienteRuleta,
-                    transform: `rotate(${rotacion}deg)`,
-                    transition: girando
-                      ? 'transform 5s cubic-bezier(0.12, 0.88, 0.22, 1)'
-                      : 'none',
-                  }}
-                  className="w-full h-full rounded-full border-[5px] border-amber-400 shadow-[0_0_50px_rgba(251,191,36,0.35)] relative overflow-hidden"
-                >
-                  {participantes.map((p, idx) => {
-                    const angulo = (360 / participantes.length) * idx + 360 / participantes.length / 2;
-                    return (
-                      <div
-                        key={p.id}
-                        style={{ transform: `rotate(${angulo}deg)` }}
-                        className="absolute inset-0 flex justify-center pt-3"
-                      >
-                        <span
-                          style={{ writingMode: 'vertical-rl' }}
-                          className="text-[10px] font-bold uppercase tracking-tight text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] max-h-24 overflow-hidden"
-                        >
-                          {p.nombre.slice(0, 11)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="absolute w-16 h-16 bg-slate-950 border-4 border-amber-400 rounded-full flex items-center justify-center z-10 shadow-xl">
-                  <Gift className="text-amber-400 animate-bounce" size={24} />
-                </div>
-              </div>
-
-              {errorMsg && (
-                <p className="text-red-300 text-sm bg-red-950/80 border border-red-700/60 p-3 rounded-xl w-full">
-                  {errorMsg}
-                </p>
-              )}
-
-              {!resultado ? (
-                <button
-                  onClick={girarRuleta}
-                  disabled={girando}
-                  className="w-full bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-500 text-slate-950 font-extrabold py-4 rounded-2xl text-lg shadow-lg hover:brightness-110 disabled:opacity-60 transition cursor-pointer"
-                >
-                  {girando ? '🎄 Mezclando la suerte navideña...' : '¡GIRAR RULETA! (1 solo intento) 🎲'}
-                </button>
-              ) : (
-                <div className="w-full bg-gradient-to-br from-emerald-900/95 to-slate-900 border-2 border-amber-400 rounded-2xl p-6 space-y-3 shadow-2xl">
-                  <p className="text-xs uppercase tracking-widest text-amber-300 font-bold">
-                    ✨ ¡Te tocó regalarle a! ✨
-                  </p>
-                  <p className="text-3xl md:text-4xl font-black text-white">
-                    🎁 {resultado.nombre} 🎁
-                  </p>
-                  {resultado.pista && (
-                    <div className="bg-slate-950/70 border border-emerald-700/50 rounded-xl p-3 text-sm text-emerald-200">
-                      💡 <strong>Su pista de regalo:</strong> &ldquo;{resultado.pista}&rdquo;
-                    </div>
-                  )}
-                  <p className="text-xs text-amber-200/90 bg-slate-950/60 p-2.5 rounded-xl">
-                    📸 <strong>¡Tomale captura ahorita!</strong> Tu turno ya quedó bloqueado y no podrás volver a abrirlo.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         <div className="md:col-span-2 bg-slate-900/85 backdrop-blur-md border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">

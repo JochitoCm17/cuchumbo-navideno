@@ -130,5 +130,41 @@ export async function POST(req: Request) {
     });
   }
 
+  if (action === 'consultar') {
+    const { id, nueva_pista } = body;
+
+    if (nueva_pista && nueva_pista.trim() !== '') {
+      await supabase
+        .from('participantes')
+        .update({ pista_regalo: nueva_pista.trim() })
+        .eq('id', id);
+    }
+
+    const { data: user } = await supabase
+      .from('participantes')
+      .select('nombre, amigo_secreto, pista_regalo, ya_giro')
+      .eq('id', id)
+      .single();
+
+    if (!user || !user.ya_giro || !user.amigo_secreto) {
+      return NextResponse.json(
+        { error: 'Primero tenés que girar la ruleta arriba.' },
+        { status: 400 }
+      );
+    }
+
+    const { data: receptor } = await supabase
+      .from('participantes')
+      .select('pista_regalo')
+      .eq('nombre', user.amigo_secreto)
+      .single();
+
+    return NextResponse.json({
+      amigo_secreto: user.amigo_secreto,
+      mi_pista: user.pista_regalo,
+      pista_receptor: receptor?.pista_regalo || 'Aún no ha actualizado su talla 😅',
+    });
+  }
+
   return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
 }
